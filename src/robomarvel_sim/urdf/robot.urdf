@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<!--
+  robot.urdf симуляции = robot.urdf робота (репозиторий rbm) + камера.
+
+  base_link и lidar скопированы БЕЗ ИЗМЕНЕНИЙ - именно они задают структуру TF,
+  на которую опирается весь код курса.
+
+  camera_link / camera_optical_frame добавлены здесь, потому что без них
+  занятия 35-36 («пиксели -> метры») не строятся. Тот же фрагмент нужно
+  добавить в robot.urdf на роботе, иначе симуляция начнёт учить тому,
+  чего на железе нет.
+
+  camera_optical_frame - стандартная оптическая система REP-103:
+  X вправо, Y вниз, Z вперёд.
+-->
+<robot name="my_robot" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- Блоки <visual> добавлены только чтобы робот был виден в Foxglove.
+       На TF-дерево, кинематику и работу стека они не влияют никак:
+       новых линков и джойнтов нет, начала координат не сдвинуты.
+       Габариты по «Robomarvel описание», п. 2.10: 18 x 15 x 15 см. -->
+
+  <material name="body"><color rgba="0.25 0.28 0.32 1.0"/></material>
+  <material name="accent"><color rgba="0.90 0.35 0.10 1.0"/></material>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.18 0.15 0.06"/></geometry>
+      <material name="body"/>
+    </visual>
+  </link>
+
+  <link name="lidar">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.035" length="0.04"/></geometry>
+      <material name="accent"/>
+    </visual>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar"/>
+    <origin xyz="0.06 0 0" rpy="0 0 1.57"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.02 0.05 0.02"/></geometry>
+      <material name="accent"/>
+    </visual>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.08 0 0.06" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_optical_frame"></link>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
+
+</robot>
