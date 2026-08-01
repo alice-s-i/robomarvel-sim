@@ -71,7 +71,7 @@ sim.launch.py  world:=  odom:=icp|perfect  slam:=mapping|localization|off  nav:=
 | `db` | `~/ros2_ws/maps/rtabmap.db` | база rtabmap |
 | `world` | `config/worlds/classroom.yaml` | планировка |
 
-⚠️ `slam:=mapping` **стирает базу при старте**. Готовую карту храните копией и указывайте `db:=`.
+важно: `slam:=mapping` **стирает базу при старте**. Готовую карту храните копией и указывайте `db:=`.
 
 ---
 
