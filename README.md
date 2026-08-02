@@ -23,8 +23,15 @@ docker build -t robomarvel-sim .
 docker run -it --name robomarvel-sim \
   -v "$(pwd)":/home/student/ros2_ws \
   -p 127.0.0.1:8765:8765 \
+  -p 127.0.0.1:8000:8000 \
+  -p 127.0.0.1:8554:8554 \
+  -p 127.0.0.1:8889:8889 \
+  -p 127.0.0.1:8189:8189/udp \
   robomarvel-sim
 ```
+
+Порты: `8765` — Foxglove bridge, `8000` — VS Code в браузере, `8554/8889/8189` — mediamtx
+(RTSP / WebRTC HTTP / WebRTC media) для вебкамеры.
 
 Внутри контейнера:
 
@@ -135,6 +142,33 @@ ros2 topic echo /goal/status     # GOAL ACCEPTED ... SUCCESS
 
 ---
 
+## VS Code в браузере
+
+В контейнере запущен OpenVSCode Server: [http://localhost:8000](http://localhost:8000).
+Стартует автоматически (entrypoint), логи в `/tmp/openvscode.log`. Предустановлены
+Python-расширения; рабочая папка — `~/ros2_ws`.
+
+---
+
+## Вебкамера из браузера
+
+Пакет `webcam` (перенесён из ros-demo): mediamtx принимает поток вебкамеры по WebRTC,
+нода `rtsp2ros` забирает его по RTSP через GStreamer и публикует в `/camera/image_raw`.
+
+```bash
+ros2 launch webcam webcam.yaml     # mediamtx + rtsp2ros (foxglove_bridge уже поднят sim.launch.py)
+```
+
+Затем открыть страницу публикации (параметры уже подставлены: 1280×720, 10 fps,
+1000 kbps, H264, без звука) и нажать Publish:
+
+[http://localhost:8889/cam/publish?video-codec=h264%2F90000&video-bitrate=1000&audio-device=none&audio-voice=false&video-width=1280&video-height=720&video-framerate=10](http://localhost:8889/cam/publish?video-codec=h264%2F90000&video-bitrate=1000&audio-device=none&audio-voice=false&video-width=1280&video-height=720&video-framerate=10)
+
+Картинка — в панели Image по топику `/camera/image_raw`. Параметры ноды (разрешение,
+fps, сжатие) — в `src/webcam/launch/webcam.yaml`.
+
+---
+
 ## Мир
 
 `config/worlds/classroom.yaml` — класс 8×6 м: `walls` (отрезки), `boxes` (прямоугольники),
@@ -145,7 +179,6 @@ ros2 topic echo /goal/status     # GOAL ACCEPTED ... SUCCESS
 
 ## Известные ограничения
 
-- **Камера.** Видео пока нет: ожидается отдельная нода, стримящая вебку из браузера.
 - **Звук.** Не реализован. Docker Desktop не пробрасывает `/dev/snd`, нужен проброс
   через браузер видимо тоже.
 - **Релокализация rtabmap.** В режиме `localization` стартует от последней позы предыдущей
