@@ -143,9 +143,17 @@ RUN ARCH="$(dpkg --print-architecture)"; if [ "$ARCH" = "amd64" ]; then ARCH=x64
 ENV PATH="${PATH}:/opt/openvscode-server/bin"
 
 # Стартует OpenVSCode фоном и передаёт управление штатному ros_entrypoint (source ROS + CMD)
+# OpenVSCode держим в цикле: если процесс умрёт, он поднимется сам, а причина
+# останется в логе. Дозапись (>>), а не перезапись: иначе следующий старт затирает
+# улики предыдущего падения, и разбираться становится не с чем.
 RUN printf '%s\n' \
       '#!/bin/bash' \
-      'openvscode-server --host 0.0.0.0 --port 8000 --without-connection-token >/tmp/openvscode.log 2>&1 &' \
+      'while true; do' \
+      '  openvscode-server --host 0.0.0.0 --port 8000 --without-connection-token >>/tmp/openvscode.log 2>&1' \
+      '  rc=$?' \
+      '  echo "[$(date -Is)] openvscode-server exited with code $rc, restarting in 3s" >>/tmp/openvscode.log' \
+      '  sleep 3' \
+      'done &' \
       'exec /ros_entrypoint.sh "$@"' \
       > /usr/local/bin/sim_entrypoint.sh \
  && chmod +x /usr/local/bin/sim_entrypoint.sh

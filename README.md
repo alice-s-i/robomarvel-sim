@@ -104,9 +104,9 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p repeat_rate:=
 | 1 | `odom:=perfect slam:=off nav:=false detection:=false` | `/scan` ~10 Гц, `/hardware/status` ~50 Гц, `/hardware/battery` ~8.3, TF `map→odom→base_link→lidar` |
 | 2 | `odom:=icp slam:=off nav:=false detection:=false` | `/icp/odom` ~10 Гц; в логе `Odom: ratio=0.7-0.8` |
 | 3 | `slam:=mapping nav:=false detection:=false` | `/map` нарастает при объезде; база в `maps/` |
-| 4 | `slam:=localization db:=... nav:=false detection:=false` | `/map` появляется сразу целиком |
-| 5 | `slam:=localization db:=... nav:=true detection:=false` | цель в `/goal` → робот едет |
-| 6 | `slam:=localization db:=... nav:=true detection:=true` | `/detections` с классами и дальностями |
+| 4 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=false detection:=false` | `/map` появляется сразу целиком |
+| 5 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=true detection:=false` | цель в `/goal` → робот едет |
+| 6 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=true detection:=true` | `/detections` с классами и дальностями |
 
 **Ступень 2 — основная.** Если настоящий ICP сходится на сканах в симуляторе, значит модель
 лидара достаточно правдоподобна.
@@ -181,7 +181,10 @@ fps, сжатие) — в `src/webcam/launch/webcam.yaml`.
 
 - **Звук.** Не реализован. Docker Desktop не пробрасывает `/dev/snd`, нужен проброс
   через браузер видимо тоже.
-- **Релокализация rtabmap.** В режиме `localization` стартует от последней позы предыдущей
-  сессии и держит её, пока не узнает местность. Нужен короткий проезд либо подсказка
-  через `/initialpose`.
+- **Старт локализации.** Режим `localization` запускается с `RGBD/StartAtOrigin=true`:
+  rtabmap считает, что робот стоит в начале карты, и не пытается найти себя с нуля.
+  Для симуляции это всегда верно (старт берётся из `world.start`, карта строилась оттуда же),
+  но означает, что **робот должен стартовать со стартовой точки**. Если запустить его
+  в произвольном месте, `map→odom` будет неверной, пока rtabmap не узнает местность —
+  тогда нужен короткий проезд либо подсказка через `/initialpose`.
 

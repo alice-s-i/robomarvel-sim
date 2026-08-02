@@ -55,14 +55,32 @@ def launch_setup(context, *args, **kwargs):
     world = LaunchConfiguration("world").perform(context)
     if not world:
         world = os.path.join(share, "config", "worlds", "classroom.yaml")
+    world = os.path.abspath(os.path.expanduser(world))
+    if not os.path.isfile(world):
+        raise RuntimeError(f"Файл мира не найден: {world}")
     odom_mode = LaunchConfiguration("odom").perform(context)
     slam_mode = LaunchConfiguration("slam").perform(context)
     use_nav = LaunchConfiguration("nav").perform(context).lower() in ("true", "1", "yes")
     use_det = LaunchConfiguration("detection").perform(context).lower() in ("true", "1", "yes")
     db_path = LaunchConfiguration("db").perform(context)
     if not db_path:
-        db_path = os.path.expanduser("~/ros2_ws/maps/rtabmap.db")
+        db_path = "~/ros2_ws/maps/rtabmap.db"
+    # expanduser + abspath: иначе "~/..." уходит в rtabmap как есть, а относительный
+    # путь без каталога (например скопированный из README плейсхолдер) даёт пустой
+    # dirname и makedirs падает с невнятным "[Errno 2] No such file or directory: ''"
+    db_path = os.path.abspath(os.path.expanduser(db_path))
+    if not db_path.endswith(".db"):
+        raise RuntimeError(
+            f"Аргумент db должен быть путём к файлу .db, получено: {db_path}"
+        )
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    if slam_mode == "localization" and not os.path.isfile(db_path):
+        raise RuntimeError(
+            f"Режим localization требует готовую базу, а её нет: {db_path}\n"
+            f"Сначала постройте карту: slam:=mapping"
+        )
+    print(f"[sim.launch.py] мир: {world}")
+    print(f"[sim.launch.py] база rtabmap: {db_path}")
 
     urdf_path = os.path.join(share, "urdf", "robot.urdf")
     with open(urdf_path, "r", encoding="utf-8") as fh:
@@ -168,6 +186,11 @@ def launch_setup(context, *args, **kwargs):
         if localization:
             rtabmap_params["Mem/IncrementalMemory"] = "false"
             rtabmap_params["Mem/InitWMWithAllNodes"] = "true"
+            # Без этого rtabmap стартует от последней позы ПРЕДЫДУЩЕЙ сессии (там, где
+            # нажали Ctrl+C после объезда) и держит её, пока не узнает местность: map->odom
+            # застывает в бессмысленном значении, скан не ложится на карту.
+            # У нас робот всегда стартует из world.start, а это и есть начало карты.
+            rtabmap_params["RGBD/StartAtOrigin"] = "true"
             args = []
         else:
             rtabmap_params["Mem/IncrementalMemory"] = "true"
