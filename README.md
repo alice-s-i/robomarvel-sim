@@ -21,7 +21,7 @@
 ```bash
 docker build -t robomarvel-sim .
 docker run -it --name robomarvel-sim \
-  -v "$(pwd)":/home/student/ros2_ws \
+  -v "$(pwd)":/src \
   -p 127.0.0.1:8765:8765 \
   -p 127.0.0.1:8000:8000 \
   -p 127.0.0.1:8554:8554 \
@@ -32,6 +32,11 @@ docker run -it --name robomarvel-sim \
 
 Порты: `8765` — Foxglove bridge, `8000` — VS Code в браузере, `8554/8889/8189` — mediamtx
 (RTSP / WebRTC HTTP / WebRTC media) для вебкамеры.
+
+Рабочая папка в контейнере — **`/src`**, пакеты лежат в **`/src/packages`**. Так же устроен
+репозиторий на роботе, поэтому команды и пути в материалах курса одинаковы для обеих сред.
+Умолчания colcon (`--symlink-install`, `--base-paths packages`) заданы в `colcon-defaults.yaml`,
+так что достаточно набрать `colcon build`.
 
 Внутри контейнера:
 
@@ -75,7 +80,7 @@ sim.launch.py  world:=  odom:=icp|perfect  slam:=mapping|localization|off  nav:=
 | `slam` | `mapping` | `localization` — по готовой базе, `off` — статический `map→odom` |
 | `nav` | `true` | стек Nav2 + `goal_proxy` |
 | `detection` | `true` | виртуальная детекция объектов |
-| `db` | `~/ros2_ws/maps/rtabmap.db` | база rtabmap |
+| `db` | `/src/maps/rtabmap.db` | база rtabmap |
 | `world` | `config/worlds/classroom.yaml` | планировка |
 
 важно: `slam:=mapping` **стирает базу при старте**. Готовую карту храните копией и указывайте `db:=`.
@@ -104,9 +109,9 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p repeat_rate:=
 | 1 | `odom:=perfect slam:=off nav:=false detection:=false` | `/scan` ~10 Гц, `/hardware/status` ~50 Гц, `/hardware/battery` ~8.3, TF `map→odom→base_link→lidar` |
 | 2 | `odom:=icp slam:=off nav:=false detection:=false` | `/icp/odom` ~10 Гц; в логе `Odom: ratio=0.7-0.8` |
 | 3 | `slam:=mapping nav:=false detection:=false` | `/map` нарастает при объезде; база в `maps/` |
-| 4 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=false detection:=false` | `/map` появляется сразу целиком |
-| 5 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=true detection:=false` | цель в `/goal` → робот едет |
-| 6 | `slam:=localization db:=~/ros2_ws/maps/classroom_good.db nav:=true detection:=true` | `/detections` с классами и дальностями |
+| 4 | `slam:=localization db:=/src/maps/classroom_good.db nav:=false detection:=false` | `/map` появляется сразу целиком |
+| 5 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=false` | цель в `/goal` → робот едет |
+| 6 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=true` | `/detections` с классами и дальностями |
 
 **Ступень 2 — основная.** Если настоящий ICP сходится на сканах в симуляторе, значит модель
 лидара достаточно правдоподобна.
@@ -122,7 +127,7 @@ ros2 topic echo /goal/status     # GOAL ACCEPTED ... SUCCESS
 
 Карта сохраняется сама при Ctrl+C — отдельной команды нет, база и есть карта.
 Для `.pgm` + `.yaml` (только для просмотра, локализация ими не пользуется):
-`ros2 run nav2_map_server map_saver_cli -f maps/classroom` 
+`ros2 run nav2_map_server map_saver_cli -f /src/maps/classroom`
 
 ---
 

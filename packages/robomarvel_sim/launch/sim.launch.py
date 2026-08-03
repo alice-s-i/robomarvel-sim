@@ -64,7 +64,7 @@ def launch_setup(context, *args, **kwargs):
     use_det = LaunchConfiguration("detection").perform(context).lower() in ("true", "1", "yes")
     db_path = LaunchConfiguration("db").perform(context)
     if not db_path:
-        db_path = "~/ros2_ws/maps/rtabmap.db"
+        db_path = "/src/maps/rtabmap.db"
     # expanduser + abspath: иначе "~/..." уходит в rtabmap как есть, а относительный
     # путь без каталога (например скопированный из README плейсхолдер) даёт пустой
     # dirname и makedirs падает с невнятным "[Errno 2] No such file or directory: ''"

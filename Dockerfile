@@ -167,22 +167,31 @@ RUN (groupadd --gid $USER_GID $USERNAME 2>/dev/null || groupmod -n $USERNAME $(g
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
+# Рабочая папка /src, пакеты в /src/packages - как на роботе и в ros-demo.
 # Алиасы в /etc/profile.d, а не в ~/.bashrc - доступны любому пользователю.
 # cb с --symlink-install: иначе правки launch-файлов, конфигов и миров не подхватываются,
 # так как data_files копируются, а не линкуются.
+# --base-paths packages: colcon по умолчанию ищет пакеты в src/, у нас они в packages/.
 RUN printf '%s\n' \
     "source /opt/ros/${ROS_DISTRO}/setup.bash" \
-    "alias cb='cd ~/ros2_ws && colcon build --symlink-install'" \
-    "alias cs='source ~/ros2_ws/install/setup.bash'" \
-    "alias ws='cd ~/ros2_ws'" \
+    "alias cb='cd /src && colcon build --symlink-install --base-paths packages'" \
+    "alias cs='source /src/install/setup.bash'" \
+    "alias ws='cd /src'" \
     > /etc/profile.d/ros_env.sh \
  && chmod 644 /etc/profile.d/ros_env.sh \
  && echo '. /etc/profile.d/ros_env.sh' >> /etc/bash.bashrc
 
+# Умолчания colcon берутся из файла в репозитории, поэтому в методичках достаточно
+# написать `colcon build` без длинного хвоста аргументов - ученик набирает команду сам.
+ENV COLCON_DEFAULTS_FILE=/src/colcon-defaults.yaml
+
 RUN rosdep update --rosdistro=${ROS_DISTRO} || true
 
+# Точка монтирования; на macOS права отдаёт Docker Desktop, но на Linux нужен владелец
+RUN mkdir -p /src && chown $USER_UID:$USER_GID /src
+
 USER $USERNAME
-WORKDIR /home/$USERNAME/ros2_ws
+WORKDIR /src
 
 # Расширения и настройки VS Code - под student, чтобы легли в ~/.openvscode-server
 RUN wget -q -O /tmp/training-tweaks.vsix \
@@ -195,7 +204,7 @@ RUN wget -q -O /tmp/training-tweaks.vsix \
  && printf '%s\n' \
       '{' \
       '    "workbench.colorTheme": "Default Dark Modern",' \
-      '    "files.dialog.defaultPath": "/home/student/ros2_ws",' \
+      '    "files.dialog.defaultPath": "/src",' \
       '    "python.languageServer": "Jedi"' \
       '}' \
       > ~/.openvscode-server/data/Machine/settings.json

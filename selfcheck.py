@@ -13,7 +13,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PKG = os.path.join(HERE, "src", "robomarvel_sim")
+PKG = os.path.join(HERE, "packages", "robomarvel_sim")
 MODULES = os.path.join(PKG, "robomarvel_sim")
 
 failures = []
