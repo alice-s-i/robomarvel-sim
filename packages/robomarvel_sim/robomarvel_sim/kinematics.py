@@ -1,8 +1,9 @@
-"""Кинематика Robomarvel - портирована один-в-один из packages/hwnode/hwnode/hwnode.py.
+"""Движение робота: размеры, пределы скоростей и формулы перевода.
 
-ЕДИНСТВЕННЫЙ источник правды по константам и формулам для симуляции.
-Если что-то меняется в hwnode на роботе - меняется и здесь, иначе симуляция
-и робот разъедутся, и мы этого не заметим.
+Здесь собрано всё, что нужно, чтобы из команды корпусу получить скорости
+колёс и наоборот, а также чтобы посчитать, где робот окажется через
+заданное время. Ни ROS, ни топиков в этом файле нет: на входе числа,
+на выходе числа.
 """
 
 import math
@@ -25,11 +26,11 @@ MIN_INPLACE_ANGULAR = 0.8
 INPLACE_ANGULAR_THRESHOLD = 0.1
 INPLACE_LINEAR_THRESHOLD = 0.05
 
-CMD_TIMEOUT = 0.3  # s, watchdog hwnode.update
+CMD_TIMEOUT = 0.3  # s, столько ждём новую команду, потом останавливаемся
 
 
 def shape_command(linear_x, angular_z):
-    """hwnode.cmd_callback: усиление, ограничение, доводка разворота на месте."""
+    """Готовит команду от пульта: усиление, ограничение, доводка разворота на месте."""
     v = linear_x * LINEAR_GAIN
     w = angular_z * ANGULAR_GAIN
 
@@ -45,7 +46,7 @@ def shape_command(linear_x, angular_z):
 
 
 def ramp(current, target, accel_step, decel_step):
-    """hwnode.ramp."""
+    """Один шаг изменения скорости в сторону нужной, не длиннее разрешённого."""
     step = accel_step if abs(target) > abs(current) else decel_step
     if target > current:
         return min(current + step, target)
@@ -59,7 +60,7 @@ def ramp_body(current_v, current_w, target_v, target_w, hz=CONTROL_HZ):
 
 
 def body_to_wheels(v, w):
-    """Обратная кинематика -> угловые скорости колёс (рад/с), с нормализацией из hwnode.update."""
+    """Из скоростей корпуса в угловые скорости колёс (рад/с), не выходя за предел мотора."""
     v_left = (v - w * WHEEL_BASE / 2) / WHEEL_RADIUS
     v_right = (v + w * WHEEL_BASE / 2) / WHEEL_RADIUS
     peak = max(abs(v_left), abs(v_right), 1e-9)
@@ -75,7 +76,7 @@ def wheels_to_body(w_left, w_right):
 
 
 def integrate_pose(x, y, yaw, v, w, dt):
-    """Точное интегрирование дуги (а не ломаной) - меньше систематической ошибки."""
+    """Где окажется робот через dt секунд. Шаг считается по дуге, а не по прямой."""
     if abs(w) < 1e-6:
         x += v * math.cos(yaw) * dt
         y += v * math.sin(yaw) * dt

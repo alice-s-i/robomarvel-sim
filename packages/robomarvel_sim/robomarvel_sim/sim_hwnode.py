@@ -1,21 +1,20 @@
-"""sim_hwnode - функциональная замена hwnode на роботе.
+"""Драйвер робота для симулятора: принимает команды, двигает робота, докладывает о себе.
 
-Публикует РОВНО тот же набор топиков, с теми же типами и с той же намеренной
-неполнотой, что и настоящий hwnode:
+Публикует ровно тот же набор топиков, с теми же типами сообщений и с той же
+неполнотой данных, что и драйвер настоящего робота:
 
-  /cmd_vel            (подписка, queue=1)
+  /cmd_vel            подписка, команды движения
   /hardware/status    Float32MultiArray [v_left, left_speed, left_angle,
                                          v_right, right_speed, right_angle]
-  /hardware/odom      Odometry, заполнено ТОЛЬКО twist.twist.linear.x
-  /hardware/imu       Imu, заполнена ТОЛЬКО angular_velocity (orientation cov = -1)
-  /hardware/battery   Float32, то же сглаживание 0.999/0.001
+  /hardware/odom      Odometry, заполнено только twist.twist.linear.x
+  /hardware/imu       Imu, заполнена только angular_velocity
+  /hardware/battery   Float32, напряжение батареи
 
-Дополнительно (ТОЛЬКО для симуляции, на роботе этого нет):
-  /sim/ground_truth   Odometry в кадре sim_world -> sim_base
-  TF sim_world -> sim_base
+Только для симуляции, на роботе этого нет:
+  /sim/ground_truth   Odometry с истинной позой, кадры sim_world -> sim_base
 
-Кадры sim_world/sim_base намеренно НЕ подключены к дереву робота: ни одна
-настоящая нода не должна иметь возможности случайно опереться на истинную позу.
+Кадры sim_world и sim_base намеренно не связаны с деревом кадров робота,
+чтобы ни одна нода не могла случайно опереться на истинную позу.
 """
 
 import math
@@ -43,14 +42,14 @@ class SimHardwareNode(Node):
         self.declare_parameter("world", "")
         self.declare_parameter("telemetry_hz", 50.0)
         self.declare_parameter("publish_odom_tf", False)
-        self.declare_parameter("wheel_noise", 0.0)  # относительное СКО проскальзывания колеса
+        self.declare_parameter("wheel_noise", 0.0)  # разброс проскальзывания колеса
         self.declare_parameter("encoder_noise", 0.02)  # рад/с, шум измерения скорости колеса
         self.declare_parameter("gyro_noise", 0.004)  # рад/с
         self.declare_parameter("gyro_bias", 0.002)  # рад/с, постоянный уход нуля
         self.declare_parameter("battery_capacity_ah", 5.0)
         self.declare_parameter("battery_speedup", 1.0)
         self.declare_parameter("collisions", True)
-        self.declare_parameter("robot_radius", 0.08)  # как robot_radius в costmap Nav2
+        self.declare_parameter("robot_radius", 0.08)
 
         world_path = self.get_parameter("world").value
         self.world = None
@@ -66,7 +65,7 @@ class SimHardwareNode(Node):
 
         self.collisions = bool(self.get_parameter("collisions").value) and self.world is not None
         self.robot_radius = float(self.get_parameter("robot_radius").value)
-        # 16 лучей достаточно, чтобы поймать касание корпусом; на 30 Гц это ничто
+        # 16 лучей достаточно, чтобы поймать касание корпусом
         self._probe = np.arange(16) / 16.0 * 2.0 * math.pi
         self.blocked = False
 
@@ -79,7 +78,7 @@ class SimHardwareNode(Node):
         self.capacity_ah = float(self.get_parameter("battery_capacity_ah").value)
         self.battery_speedup = float(self.get_parameter("battery_speedup").value)
 
-        # состояние контура управления - как в hwnode
+        # состояние контура управления
         self.target_v = 0.0
         self.target_w = 0.0
         self.current_v = 0.0
@@ -87,7 +86,7 @@ class SimHardwareNode(Node):
         self.v_left = 0.0
         self.v_right = 0.0
 
-        # истинное состояние (только симуляция)
+        # истинное состояние, известное только симулятору
         self.true_v = 0.0
         self.true_w = 0.0
         self.left_angle = 0.0
@@ -112,18 +111,14 @@ class SimHardwareNode(Node):
 
         if self.publish_odom_tf:
             self.get_logger().warn(
-                "publish_odom_tf=true: публикую odom->base_link из ИСТИННОЙ позы. "
-                "Это режим отладки; для проверки ICP-одометрии выключите его."
+                "publish_odom_tf=true: публикую odom->base_link из истинной позы. "
+                "Это отладочный режим."
             )
         self.get_logger().info("sim_hwnode запущен")
-
-    # ------------------------------------------------------------------ команды
 
     def cmd_callback(self, msg: Twist):
         self.last_cmd_time = self.get_clock().now()
         self.target_v, self.target_w = kin.shape_command(msg.linear.x, msg.angular.z)
-
-    # ------------------------------------------------------ контур 30 Гц
 
     def update(self):
         dt = 1.0 / kin.CONTROL_HZ
@@ -138,7 +133,7 @@ class SimHardwareNode(Node):
         )
         self.v_left, self.v_right = kin.body_to_wheels(self.current_v, self.current_w)
 
-        # физика: колёса крутятся с заданной скоростью, плюс опциональное проскальзывание
+        # колёса крутятся с заданной скоростью, плюс необязательное проскальзывание
         wl = self.v_left
         wr = self.v_right
         if self.wheel_noise > 0.0:
@@ -152,7 +147,7 @@ class SimHardwareNode(Node):
 
         if self.collisions and self._hits_obstacle(nx, ny):
             # Упёрлись: корпус не двигаем, но поворот разрешаем - иначе робот
-            # залипнет у стены навсегда и его нечем будет оттуда вывести.
+            # останется у стены навсегда и вывести его оттуда будет нечем.
             self.yaw = nyaw
             self.true_v = 0.0
             if not self.blocked:
@@ -171,15 +166,15 @@ class SimHardwareNode(Node):
         self.right_angle = (self.right_angle + wr * dt) % TWO_PI
 
         drain_a = 0.5 + 1.5 * min(1.0, abs(self.true_v) / kin.MAX_LINEAR)
-        self.soc = max(0.0, self.soc - drain_a * dt * self.battery_speedup / 3600.0 / self.capacity_ah)
+        self.soc = max(
+            0.0, self.soc - drain_a * dt * self.battery_speedup / 3600.0 / self.capacity_ah
+        )
 
         self.publish_truth()
 
     def _hits_obstacle(self, x, y):
-        """Корпус робота считаем окружностью radius вокруг base_link."""
+        """Корпус робота считаем окружностью радиуса robot_radius вокруг его центра."""
         return float(self.world.raycast(x, y, self._probe).min()) < self.robot_radius
-
-    # ------------------------------------------------------ телеметрия
 
     def telemetry(self):
         now = self.get_clock().now().to_msg()
@@ -198,7 +193,7 @@ class SimHardwareNode(Node):
         ]
         self.status_pub.publish(status)
 
-        # 8.3 В при полном заряде -> 6.0 В при пустом (см. Robomarvel описание, п. 2.9)
+        # 8.3 В при полном заряде, 6.0 В при пустом
         voltage = 6.0 + 2.3 * self.soc
         if self.battery_v is None:
             self.battery_v = voltage
@@ -222,8 +217,8 @@ class SimHardwareNode(Node):
         self.imu_pub.publish(imu)
 
         odom = Odometry()
-        # ВНИМАНИЕ: на роботе оба поля равны "base_link" - воспроизводим как есть,
-        # чтобы симуляция не выглядела правильнее железа.
+        # На роботе оба поля равны "base_link" - повторяем как есть, чтобы
+        # симуляция не выглядела правильнее железа.
         odom.header.frame_id = "base_link"
         odom.child_frame_id = "base_link"
         odom.header.stamp = now
@@ -236,8 +231,6 @@ class SimHardwareNode(Node):
             twist_cov[35] = 0.000001
         odom.twist.covariance = twist_cov
         self.odom_pub.publish(odom)
-
-    # ------------------------------------------------------ ground truth
 
     def publish_truth(self):
         now = self.get_clock().now().to_msg()
