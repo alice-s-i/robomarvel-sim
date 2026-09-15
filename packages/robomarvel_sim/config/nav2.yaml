@@ -1,13 +1,3 @@
-# Конфигурация Nav2 = params.yaml робота (репозиторий rbm) БЕЗ ИЗМЕНЕНИЙ ЗНАЧЕНИЙ.
-#
-# Убраны только две секции:
-#   loopback_simulator - к нашей симуляции отношения не имеет
-#   slam_toolbox       - заменён на rtabmap
-#
-# Добавлено:
-#   enable_stamped_cmd_vel: false - в Jazzy это дефолт, но лучше зафиксировать явно.
-#   Если контроллер вдруг начнёт публиковать TwistStamped, sim_hwnode его не услышит.
-
 bt_navigator:
   ros__parameters:
     global_frame: map

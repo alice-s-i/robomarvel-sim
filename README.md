@@ -1,22 +1,16 @@
 # Симуляция Robomarvel
 
-Симулятор для курса «Интеллектуальная робототехника с ROS 2». Заменяет **только железо** —
-драйвер платы, драйвер лидара и источник видео. Всё, что выше (ICP-одометрия, SLAM, Nav2),
-запускается настоящими нодами с конфигами робота, поэтому код из симуляции переносится
-на железо (по идее)
+Учебный симулятор к курсу «Интеллектуальная робототехника с ROS 2».
 
-```
-        СИМУЛЯЦИЯ                       │              НАСТОЯЩЕЕ
-  sim_hwnode    → /hardware/*, /cmd_vel │  icp_odometry → /icp/odom, TF odom→base_link
-  sim_lidar     → /scan (кадр lidar)    │  rtabmap      → /map,      TF map→odom
-  sim_detection → /detections           │  Nav2         → /plan, /cmd_vel
-                                        │  goal_proxy   → /goal/*
-                                        │  robot_state_publisher (robot.urdf с робота)
-```
+Симулируются три части робота: плата управления, лидар и источник видео. Одометрия,
+построение карты, локализация и навигация работают штатными пакетами ROS 2 с теми же
+настройками, что заданы на роботе, поэтому имена топиков, типы сообщений и структура систем
+координат в симуляции и на роботе совпадают.
 
----
+Теория, порядок сборки и пошаговые инструкции разобраны в материалах курса. Здесь собрано
+только то, что нужно, чтобы поднять симулятор и убедиться, что он работает.
 
-## Быстрый старт
+## Запуск контейнера
 
 ```bash
 docker build -t robomarvel-sim .
@@ -30,166 +24,149 @@ docker run -it --name robomarvel-sim \
   robomarvel-sim
 ```
 
-Порты: `8765` — Foxglove bridge, `8000` — VS Code в браузере, `8554/8889/8189` — mediamtx
-(RTSP / WebRTC HTTP / WebRTC media) для вебкамеры.
+Порты: `8765` — мост для средства визуализации, `8000` — VS Code в браузере,
+`8554`, `8889`, `8189` — mediamtx для вебкамеры.
 
-Рабочая папка в контейнере — **`/src`**, пакеты лежат в **`/src/packages`**. Так же устроен
-репозиторий на роботе, поэтому команды и пути в материалах курса одинаковы для обеих сред.
-Умолчания colcon (`--symlink-install`, `--base-paths packages`) заданы в `colcon-defaults.yaml`,
-так что достаточно набрать `colcon build`.
-
-Внутри контейнера:
+Повторный запуск уже созданного контейнера:
 
 ```bash
-python3 selfcheck.py     # синтаксис, YAML, URDF, математика - 2 секунды, без ROS
-cb && cs                 # colcon build --symlink-install + source
-ros2 launch robomarvel_sim sim.launch.py odom:=perfect slam:=off nav:=false detection:=false
+docker start -ai robomarvel-sim
 ```
 
----
+## Рабочая папка и сборка
 
-## Ноды
+Рабочая папка в контейнере — `/src`, пакеты лежат в `/src/packages`. Так же устроен
+репозиторий на роботе, поэтому команды и пути в материалах курса одинаковы для обеих сред.
 
-| Нода | Заменяет на роботе | Публикует |
+Умолчания colcon заданы в `colcon-defaults.yaml`, поэтому достаточно набрать `colcon build`.
+В контейнере есть сокращения: `ws` — переход в `/src`, `cb` — сборка, `cs` — подключение
+собранного пакета к текущему терминалу.
+
+```bash
+python3 selfcheck.py     # проверка синтаксиса, YAML, URDF и расчётов, без запуска ROS
+cb && cs
+```
+
+## Запуск системы
+
+Вся симуляция поднимается одним launch-файлом:
+
+```bash
+ros2 launch robomarvel_sim sim.launch.py slam:=localization db:=/src/maps/classroom_good.db
+```
+
+| Аргумент | По умолчанию | Значения |
 |---|---|---|
-| `sim_hwnode` | `hwnode` (STM32 по UART) | `/hardware/status`, `/hardware/odom`, `/hardware/imu`, `/hardware/battery`, `/sim/ground_truth` |
-| `sim_lidar` | `ld19_node` (лидар) | `/scan`, 450 лучей, 10 Гц, кадр `lidar` |
-| `sim_detection` | `detection` (частично) | `/detections`, `/camera/camera_info`, `/camera/image_annotated_compressed` |
-| `goal_proxy` | копия ноды с робота | `/goal/status`, `/goal/feedback`, сервис `/goal/cancel` |
-
-Остальное запускается как есть: `robot_state_publisher`, `icp_odometry` (`rtabmap_odom`),
-`rtabmap` (`rtabmap_slam`), Nav2 (`controller_server`, `planner_server`, `behavior_server`,
-`bt_navigator`, `lifecycle_manager`), `foxglove_bridge`.
-
-`sim_hwnode` **не публикует** `odom → base_link` — эту трансформацию считает настоящий
-`icp_odometry` по нашим сканам. Истинная поза уходит в отдельное дерево `sim_world → sim_base`,
-не связанное с деревом робота, чтобы ни одна нода не могла на неё опереться. Разница между
-`/icp/odom` и `/sim/ground_truth` — это и есть дрейф одометрии.
-
-## Launch
-
-Один файл на всё, собирается по частмя:
-
-```
-sim.launch.py  world:=  odom:=icp|perfect  slam:=mapping|localization|off  nav:=  detection:=  db:=
-```
-
-| Аргумент | По умолчанию | Смысл |
-|---|---|---|
-| `odom` | `icp` | `perfect` — TF из истинной позы, только для отладки |
-| `slam` | `mapping` | `localization` — по готовой базе, `off` — статический `map→odom` |
-| `nav` | `true` | стек Nav2 + `goal_proxy` |
+| `world` | `config/worlds/classroom.yaml` | путь к файлу планировки |
+| `odom` | `icp` | `icp` — ICP-одометрия по сканам, `perfect` — истинная поза, для отладки |
+| `slam` | `mapping` | `mapping` — строить карту, `localization` — работать по готовой, `off` — без карты |
+| `db` | `/src/maps/rtabmap.db` | путь к базе rtabmap |
+| `nav` | `true` | серверы Nav2 и `goal_proxy` |
 | `detection` | `true` | виртуальная детекция объектов |
-| `db` | `/src/maps/rtabmap.db` | база rtabmap |
-| `world` | `config/worlds/classroom.yaml` | планировка |
 
-важно: `slam:=mapping` **стирает базу при старте**. Готовую карту храните копией и указывайте `db:=`.
+**Важно:** запуск с `slam:=mapping` удаляет базу при старте. Готовую карту храните отдельной
+копией и указывайте её через `db:=`.
 
----
+Карта сохраняется сама при остановке по Ctrl+C, отдельной команды для этого нет. Файл базы
+и есть карта. Версия в формате `.pgm` и `.yaml` нужна только для просмотра, локализация ею
+не пользуется:
 
-## Валидация по частям
+```bash
+ros2 run nav2_map_server map_saver_cli -f /src/maps/classroom
+```
 
-Каждая включает предыдущую. Между запусками — Ctrl+C **один раз** и `ros2 node list` должен
-быть пуст: два launch одновременно дают дубли
+## Ноды пакета robomarvel_sim
 
-Управление во втором терминале (`cs` обязателен):
+| Нода | Что заменяет | Публикует |
+|---|---|---|
+| `sim_hwnode` | плату управления | `/hardware/status`, `/hardware/odom`, `/hardware/imu`, `/hardware/battery`, `/sim/ground_truth` |
+| `sim_lidar` | драйвер лидара | `/scan`, 450 лучей, 10 Гц, система координат `lidar` |
+| `sim_detection` | детектор объектов | `/detections`, `/camera/camera_info`, `/camera/image_annotated_compressed` |
+| `goal_proxy` | та же нода работает на роботе | `/goal/status`, `/goal/feedback`, сервис `/goal/cancel` |
+
+Остальное запускается штатными пакетами: `robot_state_publisher`, `icp_odometry`
+из `rtabmap_odom`, `rtabmap` из `rtabmap_slam`, серверы Nav2 с менеджером жизненного цикла
+и `foxglove_bridge`.
+
+Трансформацию `odom` → `base_link` считает `icp_odometry` по симулированным сканам,
+`sim_hwnode` её не публикует. Истинная поза уходит в отдельное дерево `sim_world` → `sim_base`,
+не связанное с деревом робота, поэтому опереться на неё случайно нельзя. Разница между
+`/icp/odom` и `/sim/ground_truth` — накопленный дрейф одометрии.
+
+## Проверка установки
+
+Ступени включают друг друга. Между запусками остановите предыдущий по Ctrl+C и убедитесь,
+что `ros2 node list` пуст: два запущенных launch-файла дают дубли нод.
+
+| № | Аргументы к `sim.launch.py` | Что должно получиться |
+|---|---|---|
+| 1 | `odom:=perfect slam:=off nav:=false detection:=false` | `/scan` около 10 Гц, `/hardware/status` около 50 Гц, `/hardware/battery` около 8.3 |
+| 2 | `odom:=icp slam:=off nav:=false detection:=false` | `/icp/odom` около 10 Гц, в журнале строки `Odom: ratio=0.7-0.8` |
+| 3 | `slam:=mapping nav:=false detection:=false` | `/map` прирастает при объезде помещения, база появляется в `maps/` |
+| 4 | `slam:=localization db:=/src/maps/classroom_good.db nav:=false detection:=false` | `/map` появляется сразу целиком |
+| 5 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=false` | цель в `/goal` доводит робота до места |
+| 6 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=true` | `/detections` с классами объектов и дальностями |
+
+Управление с клавиатуры для первых ступеней запускается во втором терминале после `cs`:
 
 ```bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
-если вдруг не работает, то:
+Цель для пятой ступени можно отправить из терминала:
 
 ```bash
-ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p repeat_rate:=10.0
+ros2 topic pub --once /goal geometry_msgs/msg/PoseStamped "{header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: -0.5}, orientation: {w: 1.0}}}"
+ros2 topic echo /goal/status
 ```
 
-| № | Команда (доп. к `sim.launch.py`) | Что проверяем |
-|---|---|---|
-| 1 | `odom:=perfect slam:=off nav:=false detection:=false` | `/scan` ~10 Гц, `/hardware/status` ~50 Гц, `/hardware/battery` ~8.3, TF `map→odom→base_link→lidar` |
-| 2 | `odom:=icp slam:=off nav:=false detection:=false` | `/icp/odom` ~10 Гц; в логе `Odom: ratio=0.7-0.8` |
-| 3 | `slam:=mapping nav:=false detection:=false` | `/map` нарастает при объезде; база в `maps/` |
-| 4 | `slam:=localization db:=/src/maps/classroom_good.db nav:=false detection:=false` | `/map` появляется сразу целиком |
-| 5 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=false` | цель в `/goal` → робот едет |
-| 6 | `slam:=localization db:=/src/maps/classroom_good.db nav:=true detection:=true` | `/detections` с классами и дальностями |
+## Средство визуализации
 
-**Ступень 2 — основная.** Если настоящий ICP сходится на сканах в симуляторе, значит модель
-лидара достаточно правдоподобна.
-
-**Ступень 5.** Цель можно послать из терминала либо через кнопку в Foxglove/Lichtblick (в лихтблике надо поменять топик на /goal в настройках 3D Panel в Publish)
-(По умолчанию там `/move_base_simple/goal`)
-
-```bash
-ros2 topic pub --once -w 1 /goal geometry_msgs/msg/PoseStamped \
-"{header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: -0.5, z: 0.0}, orientation: {w: 1.0}}}"
-ros2 topic echo /goal/status     # GOAL ACCEPTED ... SUCCESS
-```
-
-Карта сохраняется сама при Ctrl+C — отдельной команды нет, база и есть карта.
-Для `.pgm` + `.yaml` (только для просмотра, локализация ими не пользуется):
-`ros2 run nav2_map_server map_saver_cli -f /src/maps/classroom`
-
----
-
-## Foxglove / Lichtblick
-
-**Веб-версия по HTTPS не подключится к `ws://localhost:8765`.** Начиная с Chrome 147
-действует Local Network Access (публичная страница не может открыть сокет на loopback).
-Сейчас еще работает Lichtblick в Яндекс Браузере, но решением скорее всего является только Foxglove в контейнере
+Откройте [Lichtblick](https://viz.robomarvel.ru) и подключитесь по адресу `ws://localhost:8765`.
 
 Настройка панелей:
 
-- 3D: display frame `map`; топики `/scan` (point size 3–4), `/global_costmap/costmap`, `/plan`.
-  **`/map` и костмап одновременно не включайте** — map перекрывает карту стоимости.
-- Transforms: `sim_world` и `sim_base` выключить, иначе панель ругается на отсутствие связи
-  с `map` (они в отдельном дереве намеренно).
-- Image: `/camera/image_annotated_compressed`.
-
----
+- 3D: системой координат сцены выберите `map`, включите топики `/scan`,
+  `/global_costmap/costmap` и `/plan`. Топик `/map` при этом выключите, иначе карта закроет
+  собой карту стоимости.
+- Transforms: выключите `sim_world` и `sim_base`, они намеренно лежат в отдельном дереве
+  и не связаны с `map`.
+- Image: топик `/camera/image_annotated_compressed`.
+- Отправка цели мышью: в настройках панели 3D в поле топика для публикации позы укажите
+  `/goal`, штатное значение этого поля — `/move_base_simple/goal`.
 
 ## VS Code в браузере
 
-В контейнере запущен OpenVSCode Server: [http://localhost:8000](http://localhost:8000).
-Стартует автоматически (entrypoint), логи в `/tmp/openvscode.log`. Предустановлены
-Python-расширения; рабочая папка — `~/ros2_ws`.
+В контейнере работает OpenVSCode Server: [http://localhost:8000](http://localhost:8000).
+Запускается автоматически, журнал в `/tmp/openvscode.log`, рабочая папка — `/src`.
 
----
+## Вебкамера
 
-## Вебкамера из браузера
-
-Пакет `webcam` (перенесён из ros-demo): mediamtx принимает поток вебкамеры по WebRTC,
-нода `rtsp2ros` забирает его по RTSP через GStreamer и публикует в `/camera/image_raw`.
+Пакет `webcam` принимает поток вебкамеры через mediamtx и публикует его в `/camera/image_raw`.
 
 ```bash
-ros2 launch webcam webcam.yaml     # mediamtx + rtsp2ros (foxglove_bridge уже поднят sim.launch.py)
+ros2 launch webcam webcam.yaml
 ```
 
-Затем открыть страницу публикации (параметры уже подставлены: 1280×720, 10 fps,
-1000 kbps, H264, без звука) и нажать Publish:
+Затем откройте страницу публикации потока и нажмите Publish:
 
 [http://localhost:8889/cam/publish?video-codec=h264%2F90000&video-bitrate=1000&audio-device=none&audio-voice=false&video-width=1280&video-height=720&video-framerate=10](http://localhost:8889/cam/publish?video-codec=h264%2F90000&video-bitrate=1000&audio-device=none&audio-voice=false&video-width=1280&video-height=720&video-framerate=10)
 
-Картинка — в панели Image по топику `/camera/image_raw`. Параметры ноды (разрешение,
-fps, сжатие) — в `src/webcam/launch/webcam.yaml`.
+Картинка появится в панели Image по топику `/camera/image_raw`. Разрешение, частота кадров
+и сжатие задаются в `packages/webcam/launch/webcam.yaml`.
 
----
+## Планировка помещения
 
-## Мир
+Файл `config/worlds/classroom.yaml` описывает класс размером 8 × 6 метров: `walls` — отрезки
+стен и перегородок, `boxes` — прямоугольная мебель, `circles` и `objects` — круглые
+препятствия, `start` — точка старта робота. Свои помещения задаются такими же файлами.
 
-`config/worlds/classroom.yaml` — класс 8×6 м: `walls` (отрезки), `boxes` (прямоугольники),
-`circles`, `objects` (они же препятствия для лидара), `start`. Геометрия подобрана так,
-чтобы ICP было за что цепляться: углы, две перегородки, мебель с плоскими гранями.
+## Ограничения
 
----
-
-## Известные ограничения
-
-- **Звук.** Не реализован. Docker Desktop не пробрасывает `/dev/snd`, нужен проброс
-  через браузер видимо тоже.
-- **Старт локализации.** Режим `localization` запускается с `RGBD/StartAtOrigin=true`:
-  rtabmap считает, что робот стоит в начале карты, и не пытается найти себя с нуля.
-  Для симуляции это всегда верно (старт берётся из `world.start`, карта строилась оттуда же),
-  но означает, что **робот должен стартовать со стартовой точки**. Если запустить его
-  в произвольном месте, `map→odom` будет неверной, пока rtabmap не узнает местность —
-  тогда нужен короткий проезд либо подсказка через `/initialpose`.
-
+- **Звук.** Не реализован: Docker Desktop не пробрасывает `/dev/snd` в контейнер.
+- **Точка старта при локализации.** Режим `localization` запускается с параметром
+  `RGBD/StartAtOrigin=true`, то есть rtabmap считает, что робот стоит в начале карты.
+  Для симуляции это верно, потому что старт берётся из файла планировки и карта строилась
+  оттуда же. Если запустить робота в другом месте, трансформация `map` → `odom` останется
+  неверной, пока rtabmap не узнает местность по сканам или пока ему не задать позу
+  сообщением в `/initialpose`.

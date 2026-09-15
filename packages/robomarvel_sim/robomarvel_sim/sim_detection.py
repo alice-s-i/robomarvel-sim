@@ -1,20 +1,12 @@
-"""sim_detection - виртуальная детекция объектов, согласованная с виртуальным миром.
+"""sim_detection - виртуальная детекция объектов из файла мира.
 
-Зачем она нужна. В симуляции камера показывает НАСТОЯЩУЮ комнату (вебка ноутбука),
-а лидар - виртуальную. Для занятий 29-34 (OpenCV, YOLO, облачный Vision) это не мешает:
-там лидар не участвует. Но для занятий 35-38 («пиксели -> метры», «навигация к объекту»)
-слияние bearing с камеры и дальности с лидара дало бы бессмыслицу.
-
-Поэтому здесь объекты берутся из того же world.yaml, проецируются в виртуальную
-камеру и публикуются в ТОТ ЖЕ интерфейс, который потом даст настоящий YOLO:
+Объекты берутся из того же world.yaml, что и препятствия, проецируются
+в виртуальную камеру и публикуются в том же виде, в каком их даёт настоящий
+детектор.
 
   /detections                          vision_msgs/Detection2DArray
   /camera/camera_info                  sensor_msgs/CameraInfo
-  /camera/image_annotated_compressed   sensor_msgs/CompressedImage (схематичная отрисовка)
-
-ВАЖНО: на роботе нода detection сейчас публикует только аннотированную картинку,
-структурированных детекций нет. Их надо добавить и на роботе - иначе код занятий
-35-38 не перенесётся.
+  /camera/image_annotated_compressed   sensor_msgs/CompressedImage
 """
 
 import math
@@ -182,7 +174,6 @@ class SimDetection(Node):
             hyp = ObjectHypothesisWithPose()
             hyp.hypothesis.class_id = obj.cls
             hyp.hypothesis.score = 0.95
-            # честная 3D-позиция в оптическом кадре - для сверки на занятиях 35-36
             hyp.pose.pose.position = Point(x=float(xc), y=float(yc), z=float(zc))
             hyp.pose.pose.orientation.w = 1.0
             det.results.append(hyp)

@@ -1,11 +1,8 @@
-"""goal_proxy - мост между топиком /goal из Foxglove и action-сервером Nav2.
+"""goal_proxy - мост между топиком /goal и action-сервером Nav2.
 
-Копия ноды с робота (packages/main/goal_proxy.py) с одним изменением:
-сервис /goal/cancel был типизирован как slam_toolbox/srv/Reset. Вместе со
-slam_toolbox этот тип исчезает, поэтому здесь std_srvs/Trigger.
-То же изменение нужно внести на роботе.
+Та же нода, что работает на роботе.
 
-  /goal           (подписка)  PoseStamped        - 2D Goal Pose из Foxglove
+  /goal           (подписка)  PoseStamped        - цель навигации
   /goal/status    (издание)   String             - GOAL ACCEPTED / SUCCESS / CANCELLED / ABORTED
   /goal/feedback  (издание)   Float32MultiArray  - [distance_remaining, nav_time, recovery_count]
   /goal/cancel    (сервис)    std_srvs/Trigger   - отмена текущей цели

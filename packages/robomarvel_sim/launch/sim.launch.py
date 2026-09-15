@@ -1,41 +1,37 @@
 """Единый launch симуляции Robomarvel.
 
-Покомпонентно повторяет main.yaml робота. Собирается ступенями через аргументы,
-чтобы можно было проверять систему по частям, а не в конце.
+Собирается ступенями через аргументы, чтобы систему можно было проверять
+по частям.
 
   ros2 launch robomarvel_sim sim.launch.py odom:=perfect slam:=off nav:=false detection:=false
   ros2 launch robomarvel_sim sim.launch.py odom:=icp     slam:=off nav:=false detection:=false
   ros2 launch robomarvel_sim sim.launch.py slam:=mapping nav:=false detection:=false
   ros2 launch robomarvel_sim sim.launch.py                              # всё включено
-  ros2 launch robomarvel_sim sim.launch.py slam:=localization           # по готовой базе
+  ros2 launch robomarvel_sim sim.launch.py slam:=localization           # по готовой карте
 
 Аргументы:
   world      путь к YAML мира (по умолчанию classroom.yaml из пакета)
   odom       icp | perfect   - настоящая ICP-одометрия или истинная поза (отладка)
-  slam       mapping | localization | off
+  slam       mapping | localization | off   - строить карту, локализоваться или работать без карты
+  db         путь к базе rtabmap
   nav        true | false    - стек Nav2 + goal_proxy
   detection  true | false    - виртуальная детекция объектов
-  db         путь к базе rtabmap
 """
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 PKG = "robomarvel_sim"
 
-# Параметры ядра RTAB-Map передаются строками. Набор для режима «только 2D-лидар»:
-# визуальные признаки отключены (Kp/MaxFeatures = -1), замыкание циклов - по геометрии.
 RTABMAP_COMMON = {
     "Reg/Strategy": "1",
     "Reg/Force3DoF": "true",
-    "Icp/Strategy": "1",            # libpointmatcher
-    # 2D-скан плоский: нормали считать не по чему. Без обнуления PointToPlaneK
-    # rtabmap всё равно лезет их считать (K=5) и падает.
+    "Icp/Strategy": "1",
     "Icp/PointToPlane": "false",
     "Icp/PointToPlaneK": "0",
     "Icp/PointToPlaneRadius": "0",
@@ -62,12 +58,15 @@ def launch_setup(context, *args, **kwargs):
     slam_mode = LaunchConfiguration("slam").perform(context)
     use_nav = LaunchConfiguration("nav").perform(context).lower() in ("true", "1", "yes")
     use_det = LaunchConfiguration("detection").perform(context).lower() in ("true", "1", "yes")
+    if odom_mode == "perfect" and slam_mode in ("mapping", "localization"):
+        raise RuntimeError(
+            "Режимы mapping и localization требуют odom:=icp; "
+            "для odom:=perfect укажите slam:=off"
+        )
+
     db_path = LaunchConfiguration("db").perform(context)
     if not db_path:
         db_path = "/src/maps/rtabmap.db"
-    # expanduser + abspath: иначе "~/..." уходит в rtabmap как есть, а относительный
-    # путь без каталога (например скопированный из README плейсхолдер) даёт пустой
-    # dirname и makedirs падает с невнятным "[Errno 2] No such file or directory: ''"
     db_path = os.path.abspath(os.path.expanduser(db_path))
     if not db_path.endswith(".db"):
         raise RuntimeError(
@@ -76,7 +75,7 @@ def launch_setup(context, *args, **kwargs):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     if slam_mode == "localization" and not os.path.isfile(db_path):
         raise RuntimeError(
-            f"Режим localization требует готовую базу, а её нет: {db_path}\n"
+            f"Режим localization требует готовую карту, а файла нет: {db_path}\n"
             f"Сначала постройте карту: slam:=mapping"
         )
     print(f"[sim.launch.py] мир: {world}")
@@ -119,7 +118,7 @@ def launch_setup(context, *args, **kwargs):
     # ---------------------------------------------------------------- одометрия
 
     if not perfect_odom:
-        nodes.append(Node(
+        nodes.append(TimerAction(period=2.0, actions=[Node(
             package="rtabmap_odom", executable="icp_odometry", name="icp_odometry",
             output="screen",
             parameters=[dict(RTABMAP_COMMON, **{
@@ -129,8 +128,6 @@ def launch_setup(context, *args, **kwargs):
                 "wait_for_transform": 0.2,
                 "approx_sync": True,
                 "deskewing": False,
-                # ОБЯЗАТЕЛЬНО: без явного предела дальности rtabmap не отсекает
-                # inf из пропусков скана, и бесконечности доходят до ICP.
                 "scan_range_max": 12.0,
                 "Odom/Strategy": "0",
                 "Odom/GuessMotion": "true",
@@ -141,14 +138,12 @@ def launch_setup(context, *args, **kwargs):
                 "OdomF2M/ScanMaxSize": "15000",
                 "OdomF2M/BundleAdjustment": "false",
             })],
-            # icp_odometry подписывается и на scan, и на scan_cloud - второй уводим
-            # в несуществующий топик, чтобы вход был ровно один.
             remappings=[
                 ("scan", "/scan"),
                 ("scan_cloud", "/unused_scan_cloud"),
                 ("odom", "/icp/odom"),
             ],
-        ))
+        )]))
 
     # ---------------------------------------------------------------- карта
 
@@ -186,22 +181,15 @@ def launch_setup(context, *args, **kwargs):
         if localization:
             rtabmap_params["Mem/IncrementalMemory"] = "false"
             rtabmap_params["Mem/InitWMWithAllNodes"] = "true"
-            # Без этого rtabmap стартует от последней позы ПРЕДЫДУЩЕЙ сессии (там, где
-            # нажали Ctrl+C после объезда) и держит её, пока не узнает местность: map->odom
-            # застывает в бессмысленном значении, скан не ложится на карту.
-            # У нас робот всегда стартует из world.start, а это и есть начало карты.
             rtabmap_params["RGBD/StartAtOrigin"] = "true"
             args = []
         else:
             rtabmap_params["Mem/IncrementalMemory"] = "true"
-            args = ["-d"]  # --delete_db_on_start
+            args = ["-d"]
 
         nodes.append(Node(
             package="rtabmap_slam", executable="rtabmap", name="rtabmap", output="screen",
             parameters=[rtabmap_params],
-            # У rtabmap есть свой встроенный планировщик, подписанный на "goal".
-            # Это тот же топик, куда шлёт цель Foxglove и который слушает goal_proxy,
-            # поэтому уводим внутренний планировщик rtabmap в сторону.
             remappings=[
                 ("scan", "/scan"),
                 ("odom", "/icp/odom"),
@@ -211,11 +199,14 @@ def launch_setup(context, *args, **kwargs):
             arguments=args,
         ))
     else:
-        # без SLAM всё равно нужен map -> odom, иначе Nav2 и Foxglove не построят дерево
         nodes.append(Node(
             package="tf2_ros", executable="static_transform_publisher",
             name="static_map_odom",
-            arguments=["0", "0", "0", "0", "0", "0", "map", "odom"],
+            arguments=[
+                "--x", "0", "--y", "0", "--z", "0",
+                "--roll", "0", "--pitch", "0", "--yaw", "0",
+                "--frame-id", "map", "--child-frame-id", "odom",
+            ],
         ))
 
     # ---------------------------------------------------------------- детекция
@@ -270,8 +261,8 @@ def generate_launch_description():
                               choices=["icp", "perfect"]),
         DeclareLaunchArgument("slam", default_value="mapping",
                               choices=["mapping", "localization", "off"]),
+        DeclareLaunchArgument("db", default_value=""),
         DeclareLaunchArgument("nav", default_value="true"),
         DeclareLaunchArgument("detection", default_value="true"),
-        DeclareLaunchArgument("db", default_value=""),
         OpaqueFunction(function=launch_setup),
     ])

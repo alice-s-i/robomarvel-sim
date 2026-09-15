@@ -75,16 +75,6 @@ class RtspImagePublisher(Node):
         else:
             msg = self.cv_bridge.cv2_to_imgmsg(self.last_frame, encoding="bgr8")
 
-        ### Raw image publish without cv_bridge dependency:
-        # msg = Image()
-        # height, width, channels = self.last_frame.shape
-        # msg.height = height
-        # msg.width = width
-        # msg.encoding = "bgr8"
-        # msg.is_bigendian = 0
-        # msg.step = width * channels
-        # msg.data = self.last_frame.tobytes()
-
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
         self.publisher.publish(msg)

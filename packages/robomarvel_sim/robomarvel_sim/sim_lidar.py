@@ -1,7 +1,7 @@
-"""sim_lidar - функциональная замена драйвера LDROBOT D500 (ld19).
+"""sim_lidar - функциональная замена драйвера лидара.
 
-Публикует /scan (sensor_msgs/LaserScan) в кадре `lidar`, raycast'ом
-по виртуальной планировке из world.yaml.
+Публикует /scan (sensor_msgs/LaserScan) в системе координат `lidar`,
+raycast'ом по виртуальной планировке из world.yaml.
 
 Смещение лидара относительно base_link берётся из TF (robot_state_publisher
 поднимает его из robot.urdf), а не хардкодится - так симуляция не может
@@ -89,7 +89,7 @@ class SimLidar(Node):
         self.timer = self.create_timer(1.0 / self.rate, self.tick)
         self.get_logger().info(
             f"sim_lidar: мир '{self.world.name}', {self.n} лучей, "
-            f"{self.rate:.0f} Гц, кадр '{self.frame_id}'"
+            f"{self.rate:.0f} Гц, система координат '{self.frame_id}'"
         )
 
     def truth_callback(self, msg: Odometry):
