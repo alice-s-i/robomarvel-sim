@@ -19,3 +19,6 @@ frames_*.pdf
 
 # macOS
 .DS_Store
+
+# черновики, в курс не входят
+demo/
